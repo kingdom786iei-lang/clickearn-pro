@@ -3,6 +3,7 @@ const User = require('../models/User');
 const Transaction = require('../models/Transaction');
 const Withdrawal = require('../models/Withdrawal');
 const Ad = require('../models/Ad');
+const AdView = require('../models/AdView');
 const router = express.Router();
 
 const verifyAdmin = (req, res, next) => {
@@ -22,7 +23,13 @@ const verifyAdmin = (req, res, next) => {
 
 router.get('/users', verifyAdmin, async (req,res)=>{
   try {
-    const users = await User.find().select('-passwordHash');
+    const { search, status } = req.query;
+    const filter = {};
+    if(search) filter.email = { $regex: search, $options: 'i' };
+    if(status === 'banned') filter.isBanned = true;
+    if(status === 'active') filter.isBanned = false;
+
+    const users = await User.find(filter).select('-passwordHash').sort({ createdAt: -1 });
     res.json({ users });
   } catch(err) {
     res.status(500).json({ error: err.message });
@@ -31,8 +38,10 @@ router.get('/users', verifyAdmin, async (req,res)=>{
 
 router.post('/ban/:userId', verifyAdmin, async (req,res)=>{
   try {
-    await User.findByIdAndUpdate(req.params.userId, { isBanned: true });
-    res.json({ success: true, message: "User banned" });
+    const user = await User.findById(req.params.userId);
+    user.isBanned = !user.isBanned;
+    await user.save();
+    res.json({ success: true, isBanned: user.isBanned });
   } catch(err) {
     res.status(500).json({ error: err.message });
   }
@@ -45,12 +54,39 @@ router.get('/stats', verifyAdmin, async (req,res)=>{
     const totalPlatformEarnings = await Transaction.aggregate([
       { $group: { _id: null, total: { $sum: '$platformShare' } } }
     ]);
+
+    const now = new Date();
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const signupsToday = await User.countDocuments({ createdAt: { $gte: startOfToday } });
+    const adViewsToday = await AdView.countDocuments({ createdAt: { $gte: startOfToday } });
+
+    const totalPaidOut = await Withdrawal.aggregate([
+      { $match: { status: 'approved' } },
+      { $group: { _id: null, total: { $sum: '$netAmount' } } }
+    ]);
     
     res.json({
       totalUsers,
+      signupsToday,
       totalTransactions,
-      platformEarnings: totalPlatformEarnings[0]?.total || 0
+      adViewsToday,
+      platformEarnings: totalPlatformEarnings[0]?.total || 0,
+      totalPaidOut: totalPaidOut[0]?.total || 0
     });
+  } catch(err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Which ads are most viewed
+router.get('/ads-analytics', verifyAdmin, async (req,res)=>{
+  try {
+    const analytics = await AdView.aggregate([
+      { $group: { _id: '$adId', views: { $sum: 1 }, totalPaid: { $sum: '$rewardGiven' } } },
+      { $sort: { views: -1 } }
+    ]);
+    const populated = await Ad.populate(analytics, { path: '_id', select: 'title' });
+    res.json({ analytics: populated });
   } catch(err) {
     res.status(500).json({ error: err.message });
   }
