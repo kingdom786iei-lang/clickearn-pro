@@ -2,25 +2,43 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>ClickEarn Pro - PTC Platform</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>ClickEarn Pro</title>
+<meta name="theme-color" content="#0a0a12">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="ClickEarn">
 <script src="https://cdn.tailwindcss.com"></script>
 <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
 <style>
-.glass{background:rgba(255,255,255,0.05);backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,0.1)}
-.pulse{animation:pulse 2s infinite}@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(16,185,129,0.7)}70%{box-shadow:0 0 0 10px rgba(16,185,129,0)}100%{box-shadow:0 0 0 0 rgba(16,185,129,0)}}
+  * { -webkit-tap-highlight-color: transparent; }
+  body { overscroll-behavior-y: contain; }
+  .glass{background:rgba(255,255,255,0.05);backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,0.1)}
+  .pulse{animation:pulse 2s infinite}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(16,185,129,0.5)}70%{box-shadow:0 0 0 10px rgba(16,185,129,0)}100%{box-shadow:0 0 0 0 rgba(16,185,129,0)}}
+  .navbtn.active{color:#34d399}
+  .navbtn.active .navicon{transform:translateY(-2px)}
+  .safe-bottom{padding-bottom:env(safe-area-inset-bottom,0px)}
+  .safe-top{padding-top:env(safe-area-inset-top,0px)}
+  ::-webkit-scrollbar{display:none}
+  .fade-in{animation:fadeIn .25s ease}
+  @keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
 </style>
 </head>
-<body class="bg-[#0a0a12] text-white min-h-screen">
-<div id="app"></div>
+<body class="bg-[#0a0a12] text-white min-h-screen safe-top">
+<div id="app" class="pb-24"></div>
+<div id="navHolder"></div>
 
 <script>
-// ===== CONFIG =====
+// ===================== CONFIG =====================
 const API_BASE = "https://clickearn-backend-production.up.railway.app/api/v1";
 
 let token = localStorage.getItem('ce_token') || null;
 let currentUser = JSON.parse(localStorage.getItem('ce_user') || 'null');
-let cooldown = 0;
+let currentTab = 'home';
+let adsCache = [];
 
 function saveSession(){
   if(token) localStorage.setItem('ce_token', token); else localStorage.removeItem('ce_token');
@@ -37,17 +55,27 @@ async function api(path, opts = {}){
   return data;
 }
 
-function render(){
-  if(!currentUser){ renderAuth(); return; }
-  if(currentUser.role === 'admin') renderAdmin();
-  else renderUser();
+function toast(msg, isError){
+  const el = document.createElement('div');
+  el.className = `fixed left-1/2 -translate-x-1/2 bottom-24 z-50 px-4 py-2 rounded-full text-sm font-bold fade-in ${isError ? 'bg-red-500/90 text-white' : 'bg-emerald-500/90 text-black'}`;
+  el.textContent = msg;
+  document.body.appendChild(el);
+  setTimeout(()=> el.remove(), 2200);
 }
+
+function render(){
+  if(!currentUser){ document.getElementById('navHolder').innerHTML=''; renderAuth(); return; }
+  if(currentUser.role === 'admin'){ renderAdminShell(); return; }
+  renderUserShell();
+}
+
+// ===================== AUTH =====================
 
 function renderAuth(){
   const showPin = window._showPin || false;
   document.getElementById('app').innerHTML = `
   <div class="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-violet-900/20 to-emerald-900/20">
-   <div class="glass rounded-[2rem] p-8 w-full max-w-md">
+   <div class="glass rounded-[2rem] p-8 w-full max-w-md fade-in">
     <div class="text-center mb-8"><h1 class="text-3xl font-black"><i class="fa-solid fa-bolt text-emerald-400"></i> ClickEarn <span class="text-violet-400">Pro</span></h1><p class="text-zinc-400 text-sm mt-2">Premium PTC & Micro-Job Platform</p></div>
     <div class="flex bg-black/40 rounded-full p-1 mb-6">
       <button onclick="window._tab='login';renderAuth()" class="flex-1 py-2 rounded-full ${window._tab!=='reg'?'bg-white text-black':''} font-bold">Login</button>
@@ -56,6 +84,7 @@ function renderAuth(){
     <div id="authError" class="hidden bg-red-500/10 border border-red-500/30 text-red-300 text-sm rounded-xl p-3 mb-3"></div>
     <input id="email" oninput="checkAdmin(this.value)" placeholder="Email" class="w-full bg-black/50 border border-white/10 rounded-xl p-3 mb-3 outline-none focus:border-violet-500">
     <input id="pass" type="password" placeholder="Password" class="w-full bg-black/50 border border-white/10 rounded-xl p-3 mb-3 outline-none">
+    ${window._tab==='reg' ? `<input id="refCode" placeholder="Referral code (optional)" class="w-full bg-black/50 border border-white/10 rounded-xl p-3 mb-3 outline-none">` : ''}
     <div id="pinBox" class="${showPin?'':'hidden'}">
       <input id="pin" placeholder="Admin PIN (6-digit)" class="w-full bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 mb-3 outline-none text-amber-300">
       <p class="text-xs text-amber-300 mb-3">Master Admin Detected - Enter PIN</p>
@@ -64,6 +93,8 @@ function renderAuth(){
    </div>
   </div>`;
   if(window._email) document.getElementById('email').value = window._email;
+  const savedRef = localStorage.getItem('ce_pending_ref');
+  if(savedRef && document.getElementById('refCode')) document.getElementById('refCode').value = savedRef;
 }
 
 async function checkAdmin(v){
@@ -87,16 +118,20 @@ async function doAuth(){
   const email = document.getElementById('email').value.trim().toLowerCase();
   const pass = document.getElementById('pass').value;
   const pin = document.getElementById('pin')?.value;
+  const refInput = document.getElementById('refCode')?.value?.trim();
   const btn = document.getElementById('authBtn');
   if(!email || !pass) return showAuthError('Email/Password required');
 
   btn.disabled = true; btn.innerText = 'Please wait...';
   try{
     if(window._tab === 'reg'){
-      const data = await api('/auth/register', { method:'POST', body: JSON.stringify({ email, password: pass }) });
+      const body = { email, password: pass };
+      if(refInput) body.ref = refInput;
+      const data = await api('/auth/register', { method:'POST', body: JSON.stringify(body) });
       token = data.token;
-      currentUser = { id: data.userId, email, role: 'user', balanceUSD: data.balanceUSD || 0 };
-      saveSession(); render();
+      currentUser = { id: data.userId, email, role: 'user', balanceUSD: data.balanceUSD || 0, referralCode: data.referralCode };
+      localStorage.removeItem('ce_pending_ref');
+      saveSession(); currentTab='home'; render();
     } else {
       const body = { email, password: pass };
       if(pin) body.adminPin = pin;
@@ -104,8 +139,8 @@ async function doAuth(){
       token = data.token;
       currentUser = data.isAdmin
         ? { email, role: 'admin' }
-        : { id: data.userId, email, role: 'user', balanceUSD: data.balanceUSD || 0 };
-      saveSession(); render();
+        : { id: data.userId, email, role: 'user', balanceUSD: data.balanceUSD || 0, referralCode: data.referralCode };
+      saveSession(); currentTab='home'; render();
     }
   }catch(e){
     showAuthError(e.message);
@@ -119,54 +154,157 @@ function logout(){
   saveSession(); render();
 }
 
-async function renderUser(){
-  document.getElementById('app').innerHTML = `
-  <div class="max-w-6xl mx-auto p-4">
-   <div class="flex justify-between items-center glass rounded-2xl p-4 mb-6">
-     <h2 class="font-black text-xl"><i class="fa-solid fa-bolt text-emerald-400"></i> ClickEarn Pro</h2>
-     <div class="flex items-center gap-4">
-       <div class="bg-emerald-500/20 border border-emerald-500/30 rounded-full px-4 py-1 font-bold pulse" id="balanceBadge">$${(currentUser.balanceUSD||0).toFixed(3)}</div>
-       <button onclick="logout()" class="text-zinc-400"><i class="fa-solid fa-right-from-bracket"></i></button>
-     </div>
-   </div>
-   <div class="glass rounded-2xl p-6 mb-6" id="adsBox">
-     <h3 class="font-bold mb-4"><i class="fa-solid fa-rectangle-ad"></i> Available Ads</h3>
-     <p class="text-sm text-zinc-400">Loading ads...</p>
-   </div>
-   <div class="glass rounded-2xl p-6">
-     <h3 class="font-bold mb-4">Withdrawal - USDT - Min $5.00</h3>
-     <div id="wdError" class="hidden bg-red-500/10 border border-red-500/30 text-red-300 text-sm rounded-xl p-3 mb-3"></div>
-     <input id="wdAmt" type="number" step="0.01" placeholder="Amount (e.g. 5.5)" class="w-full bg-black/50 border border-white/10 rounded-xl p-3 mb-2">
-     <input id="wdAddr" placeholder="USDT Address" class="w-full bg-black/50 border border-white/10 rounded-xl p-3 mb-3">
-     <button onclick="withdraw()" class="w-full bg-emerald-500 text-black py-3 rounded-xl font-bold">Request Withdrawal</button>
-     <div id="wdHistory" class="mt-4 space-y-2"></div>
-   </div>
-  </div>`;
-  loadAds();
-  loadWithdrawalHistory();
+// ===================== USER SHELL + NAV =====================
+
+function renderUserShell(){
+  renderBottomNav();
+  switch(currentTab){
+    case 'home': renderHome(); break;
+    case 'ads': renderAdsPage(); break;
+    case 'refer': renderReferPage(); break;
+    case 'wallet': renderWalletPage(); break;
+    case 'profile': renderProfilePage(); break;
+    default: renderHome();
+  }
 }
 
-async function loadAds(){
-  const box = document.getElementById('adsBox');
+function switchTab(tab){
+  currentTab = tab;
+  renderUserShell();
+  window.scrollTo(0,0);
+}
+
+function renderBottomNav(){
+  const items = [
+    { id:'home', icon:'fa-house', label:'Home' },
+    { id:'ads', icon:'fa-rectangle-ad', label:'Ads' },
+    { id:'refer', icon:'fa-users', label:'Refer' },
+    { id:'wallet', icon:'fa-wallet', label:'Wallet' },
+    { id:'profile', icon:'fa-user', label:'Profile' }
+  ];
+  document.getElementById('navHolder').innerHTML = `
+  <div class="fixed bottom-0 left-0 right-0 z-40 safe-bottom">
+    <div class="glass mx-3 mb-3 rounded-2xl flex justify-around items-center py-2">
+      ${items.map(it => `
+        <button onclick="switchTab('${it.id}')" class="navbtn flex flex-col items-center gap-1 px-3 py-1 text-zinc-400 ${currentTab===it.id?'active':''}">
+          <i class="fa-solid ${it.icon} navicon text-lg transition-transform"></i>
+          <span class="text-[10px] font-bold">${it.label}</span>
+        </button>`).join('')}
+    </div>
+  </div>`;
+}
+
+function topBar(title, extraHtml){
+  return `<div class="flex justify-between items-center px-4 pt-4 pb-2">
+    <h2 class="font-black text-xl">${title}</h2>
+    ${extraHtml || ''}
+  </div>`;
+}
+
+// ---------------- HOME ----------------
+
+async function renderHome(){
+  document.getElementById('app').innerHTML = `
+  ${topBar('<i class="fa-solid fa-bolt text-emerald-400"></i> ClickEarn Pro')}
+  <div class="max-w-2xl mx-auto p-4 space-y-4 fade-in">
+    <div class="glass rounded-3xl p-6 text-center">
+      <p class="text-xs text-zinc-400 uppercase tracking-wide">Available Balance</p>
+      <p class="text-4xl font-black text-emerald-400 pulse inline-block px-4 py-1 rounded-full mt-2" id="homeBalance">$${(currentUser.balanceUSD||0).toFixed(3)}</p>
+    </div>
+    <div class="grid grid-cols-3 gap-3" id="statsRow">
+      <div class="glass rounded-2xl p-3 text-center"><p class="text-[10px] text-zinc-400">Today</p><p class="font-bold" id="statToday">--</p></div>
+      <div class="glass rounded-2xl p-3 text-center"><p class="text-[10px] text-zinc-400">This Week</p><p class="font-bold" id="statWeek">--</p></div>
+      <div class="glass rounded-2xl p-3 text-center"><p class="text-[10px] text-zinc-400">Total Earned</p><p class="font-bold" id="statTotal">--</p></div>
+    </div>
+    <button onclick="claimDailyBonus()" id="bonusBtn" class="w-full bg-gradient-to-r from-amber-500 to-orange-500 text-black font-bold py-3 rounded-2xl flex items-center justify-center gap-2">
+      <i class="fa-solid fa-gift"></i> Claim Daily Bonus
+    </button>
+    <button onclick="switchTab('ads')" class="w-full bg-gradient-to-r from-violet-600 to-emerald-500 py-3 rounded-2xl font-bold flex items-center justify-center gap-2">
+      <i class="fa-solid fa-rectangle-ad"></i> View Ads & Earn
+    </button>
+    <div class="glass rounded-2xl p-4">
+      <p class="font-bold mb-2 text-sm"><i class="fa-solid fa-trophy text-amber-400"></i> Top Earners</p>
+      <div id="leaderboardBox" class="space-y-2"><p class="text-xs text-zinc-400">Loading...</p></div>
+    </div>
+  </div>`;
+  loadHomeStats();
+  loadLeaderboard();
+}
+
+async function loadHomeStats(){
+  try{
+    const data = await api('/users/stats');
+    document.getElementById('statToday').textContent = `$${data.todayEarned.toFixed(3)}`;
+    document.getElementById('statWeek').textContent = `$${data.weekEarned.toFixed(3)}`;
+    document.getElementById('statTotal').textContent = `$${data.totalEarned.toFixed(3)}`;
+    currentUser.balanceUSD = data.balanceUSD;
+    saveSession();
+    const bal = document.getElementById('homeBalance');
+    if(bal) bal.textContent = `$${data.balanceUSD.toFixed(3)}`;
+  }catch(e){}
+}
+
+async function loadLeaderboard(){
+  const box = document.getElementById('leaderboardBox');
+  try{
+    const data = await api('/users/leaderboard');
+    const list = data.leaderboard || [];
+    box.innerHTML = list.length ? list.map((u,i) => `
+      <div class="flex justify-between items-center text-sm bg-black/30 rounded-lg px-3 py-2">
+        <span>#${i+1} ${u.email.split('@')[0]}</span>
+        <span class="text-emerald-400 font-bold">$${(u.totalEarned||0).toFixed(2)}</span>
+      </div>`).join('') : '<p class="text-xs text-zinc-400">No data yet</p>';
+  }catch(e){
+    box.innerHTML = `<p class="text-xs text-red-300">${e.message}</p>`;
+  }
+}
+
+async function claimDailyBonus(){
+  const btn = document.getElementById('bonusBtn');
+  btn.disabled = true;
+  try{
+    const data = await api('/users/daily-bonus', { method:'POST' });
+    toast(`+$${data.bonus.toFixed(3)} bonus claimed!`);
+    loadHomeStats();
+  }catch(e){
+    toast(e.message, true);
+  }finally{
+    btn.disabled = false;
+  }
+}
+
+// ---------------- ADS ----------------
+
+async function renderAdsPage(){
+  document.getElementById('app').innerHTML = `
+  ${topBar('Available Ads')}
+  <div class="max-w-2xl mx-auto p-4 fade-in" id="adsListBox">
+    <p class="text-sm text-zinc-400">Loading ads...</p>
+  </div>`;
+  loadAdsList();
+}
+
+async function loadAdsList(){
+  const box = document.getElementById('adsListBox');
   try{
     const data = await api('/ads');
-    const ads = data.ads || [];
-    if(ads.length === 0){
-      box.innerHTML = `<h3 class="font-bold mb-4"><i class="fa-solid fa-rectangle-ad"></i> Available Ads</h3>
-        <p class="text-sm text-zinc-400">No ads available right now — check back soon.</p>`;
+    adsCache = data.ads || [];
+    if(adsCache.length === 0){
+      box.innerHTML = `<div class="glass rounded-2xl p-6 text-center text-zinc-400 text-sm">No ads available right now — check back soon.</div>`;
       return;
     }
-    box.innerHTML = `<h3 class="font-bold mb-4"><i class="fa-solid fa-rectangle-ad"></i> Available Ads</h3>
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-        ${ads.map(ad => `
-          <div class="bg-black/40 rounded-xl p-4 flex justify-between items-center">
-            <div><p class="font-bold">${ad.title || 'Ad'}</p><p class="text-xs text-zinc-400">Reward $${(ad.reward||0).toFixed(3)}</p></div>
-            <button onclick="viewAd('${ad._id||ad.id}')" class="bg-emerald-500 text-black px-4 py-2 rounded-full font-bold">View Ad</button>
-          </div>`).join('')}
-      </div>`;
+    box.innerHTML = `<div class="space-y-3">
+      ${adsCache.map(ad => `
+        <div class="glass rounded-2xl p-4 flex justify-between items-center">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-xl bg-emerald-500/20 flex items-center justify-center"><i class="fa-solid fa-play text-emerald-400"></i></div>
+            <div><p class="font-bold text-sm">${ad.title || 'Ad'}</p><p class="text-xs text-zinc-400">Reward $${(ad.reward||0).toFixed(3)}</p></div>
+          </div>
+          <button onclick="viewAd('${ad._id||ad.id}')" class="bg-emerald-500 text-black px-4 py-2 rounded-full font-bold text-sm">View</button>
+        </div>`).join('')}
+    </div>`;
   }catch(e){
-    box.innerHTML = `<h3 class="font-bold mb-4"><i class="fa-solid fa-rectangle-ad"></i> Available Ads</h3>
-      <p class="text-sm text-red-300">Couldn't load ads: ${e.message}</p>`;
+    box.innerHTML = `<div class="glass rounded-2xl p-6 text-center text-red-300 text-sm">${e.message}</div>`;
   }
 }
 
@@ -175,22 +313,103 @@ async function viewAd(adId){
     const data = await api(`/ads/click/${adId}`, { method:'POST' });
     currentUser.balanceUSD = data.balanceUSD;
     saveSession();
-    const badge = document.getElementById('balanceBadge');
-    if(badge) badge.textContent = `$${currentUser.balanceUSD.toFixed(3)}`;
+    toast(`+$${data.reward.toFixed(3)} earned!`);
   }catch(e){
-    alert(e.message);
+    toast(e.message, true);
   }
 }
 
-async function loadWithdrawalHistory(){
-  const box = document.getElementById('wdHistory');
-  if(!box || !currentUser.id) return;
+// ---------------- REFER ----------------
+
+async function renderReferPage(){
+  document.getElementById('app').innerHTML = `
+  ${topBar('Refer & Earn')}
+  <div class="max-w-2xl mx-auto p-4 space-y-4 fade-in">
+    <div class="glass rounded-3xl p-6 text-center">
+      <i class="fa-solid fa-gift text-3xl text-violet-400 mb-2"></i>
+      <p class="text-sm text-zinc-300">Earn <span class="text-emerald-400 font-bold">10%</span> of every ad your referrals view — forever.</p>
+    </div>
+    <div class="glass rounded-2xl p-4">
+      <p class="text-xs text-zinc-400 mb-2">Your referral link</p>
+      <div class="flex gap-2">
+        <input id="refLink" readonly class="flex-1 bg-black/50 border border-white/10 rounded-xl p-3 text-xs outline-none">
+        <button onclick="copyRefLink()" class="bg-violet-600 px-4 rounded-xl font-bold text-sm">Copy</button>
+      </div>
+    </div>
+    <div class="grid grid-cols-2 gap-3">
+      <div class="glass rounded-2xl p-4 text-center"><p class="text-xs text-zinc-400">Referral Earnings</p><p class="font-bold text-emerald-400" id="refEarnings">--</p></div>
+      <div class="glass rounded-2xl p-4 text-center"><p class="text-xs text-zinc-400">Total Referred</p><p class="font-bold" id="refCount">--</p></div>
+    </div>
+    <div class="glass rounded-2xl p-4">
+      <p class="font-bold mb-2 text-sm">Your Referrals</p>
+      <div id="refListBox" class="space-y-2"><p class="text-xs text-zinc-400">Loading...</p></div>
+    </div>
+  </div>`;
+  loadReferrals();
+}
+
+async function loadReferrals(){
   try{
-    const data = await api(`/withdrawals/history/${currentUser.id}`);
-    const list = data.withdrawals || [];
-    box.innerHTML = list.length
-      ? list.map(w => `<div class="bg-black/30 rounded-lg p-2 text-xs flex justify-between"><span>$${w.requestedAmount} → net $${w.netAmount}</span><span class="capitalize">${w.status}</span></div>`).join('')
-      : '';
+    const data = await api('/users/referrals');
+    const link = `${window.location.origin}${window.location.pathname}?ref=${data.referralCode}`;
+    document.getElementById('refLink').value = link;
+    document.getElementById('refEarnings').textContent = `$${(data.referralEarnings||0).toFixed(3)}`;
+    document.getElementById('refCount').textContent = data.referredUsers?.length || 0;
+    const box = document.getElementById('refListBox');
+    const list = data.referredUsers || [];
+    box.innerHTML = list.length ? list.map(u => `
+      <div class="flex justify-between text-sm bg-black/30 rounded-lg px-3 py-2">
+        <span>${u.email}</span>
+        <span class="text-zinc-400 text-xs">${new Date(u.createdAt).toLocaleDateString()}</span>
+      </div>`).join('') : '<p class="text-xs text-zinc-400">No referrals yet — share your link!</p>';
+  }catch(e){
+    document.getElementById('refListBox').innerHTML = `<p class="text-xs text-red-300">${e.message}</p>`;
+  }
+}
+
+function copyRefLink(){
+  const input = document.getElementById('refLink');
+  input.select();
+  navigator.clipboard?.writeText(input.value).then(()=> toast('Link copied!')).catch(()=>{
+    document.execCommand('copy'); toast('Link copied!');
+  });
+}
+
+// ---------------- WALLET ----------------
+
+async function renderWalletPage(){
+  document.getElementById('app').innerHTML = `
+  ${topBar('Wallet')}
+  <div class="max-w-2xl mx-auto p-4 space-y-4 fade-in">
+    <div class="glass rounded-3xl p-6 text-center">
+      <p class="text-xs text-zinc-400">Available Balance</p>
+      <p class="text-3xl font-black text-emerald-400">$${(currentUser.balanceUSD||0).toFixed(3)}</p>
+    </div>
+    <div class="glass rounded-2xl p-6">
+      <h3 class="font-bold mb-4 text-sm">Request Withdrawal - Min $5.00</h3>
+      <div id="wdError" class="hidden bg-red-500/10 border border-red-500/30 text-red-300 text-sm rounded-xl p-3 mb-3"></div>
+      <input id="wdAmt" type="number" step="0.01" placeholder="Amount (e.g. 5.5)" class="w-full bg-black/50 border border-white/10 rounded-xl p-3 mb-2">
+      <input id="wdAddr" placeholder="USDT Address" class="w-full bg-black/50 border border-white/10 rounded-xl p-3 mb-3">
+      <button onclick="withdraw()" class="w-full bg-emerald-500 text-black py-3 rounded-xl font-bold">Request Withdrawal</button>
+    </div>
+    <div class="glass rounded-2xl p-4">
+      <p class="font-bold mb-2 text-sm">Withdrawal History</p>
+      <div id="wdHistory" class="space-y-2"><p class="text-xs text-zinc-400">Loading...</p></div>
+    </div>
+    <div class="glass rounded-2xl p-4">
+      <p class="font-bold mb-2 text-sm">Ad Earnings History</p>
+      <div id="earnHistory" class="space-y-2"><p class="text-xs text-zinc-400">Loading...</p></div>
+    </div>
+  </div>`;
+  prefillUsdtAddress();
+  loadWithdrawalHistory();
+  loadEarningsHistory();
+}
+
+async function prefillUsdtAddress(){
+  try{
+    const data = await api('/users/me');
+    if(data.user?.usdtAddress) document.getElementById('wdAddr').value = data.user.usdtAddress;
   }catch(e){}
 }
 
@@ -207,54 +426,280 @@ async function withdraw(){
   if(!amount || amount < 5) return showWdError('Minimum withdrawal is $5');
   if(!usdtAddress) return showWdError('Enter a USDT address');
   try{
-    const data = await api('/withdrawals/request', {
-      method:'POST',
-      body: JSON.stringify({ amount, usdtAddress })
-    });
+    const data = await api('/withdrawals/request', { method:'POST', body: JSON.stringify({ amount, usdtAddress }) });
     currentUser.balanceUSD = data.balanceUSD;
     saveSession();
-    document.getElementById('balanceBadge').textContent = `$${currentUser.balanceUSD.toFixed(3)}`;
     document.getElementById('wdAmt').value = '';
-    document.getElementById('wdAddr').value = '';
-    alert('Withdrawal requested — pending admin approval.');
+    toast('Withdrawal requested — pending approval');
     loadWithdrawalHistory();
+    api('/users/usdt-address', { method:'POST', body: JSON.stringify({ usdtAddress }) }).catch(()=>{});
   }catch(e){
     showWdError(e.message);
   }
 }
 
-async function renderAdmin(){
+async function loadWithdrawalHistory(){
+  const box = document.getElementById('wdHistory');
+  if(!box || !currentUser.id) return;
+  try{
+    const data = await api(`/withdrawals/history/${currentUser.id}`);
+    const list = data.withdrawals || [];
+    box.innerHTML = list.length
+      ? list.map(w => `<div class="flex justify-between text-xs bg-black/30 rounded-lg px-3 py-2"><span>$${w.requestedAmount} → net $${w.netAmount}</span><span class="capitalize ${w.status==='approved'?'text-emerald-400':w.status==='rejected'?'text-red-400':'text-amber-400'}">${w.status}</span></div>`).join('')
+      : '<p class="text-xs text-zinc-400">No withdrawals yet</p>';
+  }catch(e){
+    box.innerHTML = `<p class="text-xs text-red-300">${e.message}</p>`;
+  }
+}
+
+async function loadEarningsHistory(){
+  const box = document.getElementById('earnHistory');
+  try{
+    const data = await api('/users/history');
+    const list = data.history || [];
+    box.innerHTML = list.length
+      ? list.slice(0,20).map(h => `<div class="flex justify-between text-xs bg-black/30 rounded-lg px-3 py-2"><span>${h.adId?.title || 'Ad'}</span><span class="text-emerald-400">+$${(h.rewardGiven||0).toFixed(3)}</span></div>`).join('')
+      : '<p class="text-xs text-zinc-400">No earnings yet</p>';
+  }catch(e){
+    box.innerHTML = `<p class="text-xs text-red-300">${e.message}</p>`;
+  }
+}
+
+// ---------------- PROFILE ----------------
+
+async function renderProfilePage(){
   document.getElementById('app').innerHTML = `
-  <div class="max-w-6xl mx-auto p-4">
-   <div class="flex justify-between items-center glass rounded-2xl p-4 mb-6">
-     <h2 class="font-black text-xl text-amber-300"><i class="fa-solid fa-crown"></i> Admin Panel</h2>
-     <button onclick="logout()" class="bg-white text-black px-4 rounded-full py-1">Logout</button>
-   </div>
-   <div class="grid grid-cols-3 gap-4 mb-6" id="statsBox">
-     <div class="glass p-4 rounded-xl">Loading stats...</div>
-   </div>
-   <div class="glass p-6 rounded-2xl mb-6" id="adsMgmtBox">
-     <h3 class="font-bold mb-3">Ad Management</h3>
-     <div class="flex gap-2 mb-4">
-       <input id="newAdTitle" placeholder="Ad title" class="flex-1 bg-black/50 p-2 rounded">
-       <input id="newAdReward" type="number" step="0.001" placeholder="Reward $" class="w-28 bg-black/50 p-2 rounded">
-       <input id="newAdCooldown" type="number" placeholder="Cooldown s" class="w-28 bg-black/50 p-2 rounded" value="30">
-       <button onclick="createAd()" class="bg-emerald-500 text-black px-4 rounded">Add Ad</button>
-     </div>
-     <div id="adsList" class="space-y-2"></div>
-   </div>
-   <div class="glass p-6 rounded-2xl mb-6" id="usersBox">
-     <h3 class="font-bold mb-3">User Management</h3>
-     <p class="text-sm text-zinc-400">Loading users...</p>
-   </div>
-   <div class="glass p-6 rounded-2xl" id="withdrawalsBox">
-     <h3 class="font-bold mb-3">Pending Withdrawals</h3>
-     <p class="text-sm text-zinc-400">Loading...</p>
-   </div>
+  ${topBar('Profile')}
+  <div class="max-w-2xl mx-auto p-4 space-y-4 fade-in">
+    <div class="glass rounded-3xl p-6 text-center">
+      <div class="w-16 h-16 rounded-full bg-violet-500/20 flex items-center justify-center mx-auto mb-3"><i class="fa-solid fa-user text-2xl text-violet-400"></i></div>
+      <p class="font-bold">${currentUser.email}</p>
+      <p class="text-xs text-zinc-400 mt-1">Referral code: ${currentUser.referralCode || '--'}</p>
+    </div>
+    <div class="glass rounded-2xl p-4">
+      <p class="font-bold mb-2 text-sm">USDT Address</p>
+      <input id="profileUsdt" placeholder="Your USDT BEP20 address" class="w-full bg-black/50 border border-white/10 rounded-xl p-3 mb-2 text-sm">
+      <button onclick="saveUsdtAddress()" class="w-full bg-violet-600 py-2 rounded-xl font-bold text-sm">Save Address</button>
+    </div>
+    <button onclick="switchTab('faq')" class="w-full glass rounded-2xl p-4 flex justify-between items-center">
+      <span class="font-bold text-sm"><i class="fa-solid fa-circle-question text-violet-400 mr-2"></i>FAQ & Help</span>
+      <i class="fa-solid fa-chevron-right text-zinc-500"></i>
+    </button>
+    <button onclick="logout()" class="w-full bg-red-500/10 border border-red-500/30 text-red-300 py-3 rounded-2xl font-bold">
+      <i class="fa-solid fa-right-from-bracket mr-2"></i>Logout
+    </button>
   </div>`;
-  loadStats();
-  loadUsers();
-  loadWithdrawals();
+  try{
+    const data = await api('/users/me');
+    if(data.user?.usdtAddress) document.getElementById('profileUsdt').value = data.user.usdtAddress;
+  }catch(e){}
+}
+
+async function saveUsdtAddress(){
+  const usdtAddress = document.getElementById('profileUsdt').value.trim();
+  if(!usdtAddress) return toast('Enter an address', true);
+  try{
+    await api('/users/usdt-address', { method:'POST', body: JSON.stringify({ usdtAddress }) });
+    toast('USDT address saved');
+  }catch(e){
+    toast(e.message, true);
+  }
+}
+
+// ---------------- FAQ ----------------
+
+function renderFaqPage(){
+  const faqs = [
+    { q: 'How do I earn money?', a: 'View ads in the Ads tab. Each ad has a fixed reward that is credited to your balance instantly.' },
+    { q: 'What is the minimum withdrawal?', a: 'The minimum withdrawal amount is $5.00 USDT (BEP20 network).' },
+    { q: 'How long do withdrawals take?', a: 'Withdrawals are reviewed by an admin and typically processed within 24-48 hours.' },
+    { q: 'How does the referral program work?', a: 'Share your referral link. When someone signs up through it, you earn 10% of every ad reward they earn, forever.' },
+    { q: 'Why was my account banned?', a: 'Accounts are banned for suspicious activity such as using multiple accounts, VPNs, or bots. Contact support if you believe this was a mistake.' },
+    { q: 'Is there a daily bonus?', a: 'Yes — claim your daily login bonus once every 24 hours from the Home tab.' }
+  ];
+  document.getElementById('app').innerHTML = `
+  ${topBar('FAQ & Help', `<button onclick="switchTab('profile')" class="text-zinc-400"><i class="fa-solid fa-arrow-left"></i></button>`)}
+  <div class="max-w-2xl mx-auto p-4 space-y-3 fade-in">
+    ${faqs.map((f,i) => `
+      <div class="glass rounded-2xl overflow-hidden">
+        <button onclick="toggleFaq(${i})" class="w-full text-left p-4 flex justify-between items-center">
+          <span class="font-bold text-sm">${f.q}</span>
+          <i class="fa-solid fa-chevron-down text-zinc-500 text-xs" id="faqIcon${i}"></i>
+        </button>
+        <div id="faqAnswer${i}" class="hidden px-4 pb-4 text-sm text-zinc-400">${f.a}</div>
+      </div>`).join('')}
+  </div>`;
+}
+
+function toggleFaq(i){
+  const ans = document.getElementById(`faqAnswer${i}`);
+  const icon = document.getElementById(`faqIcon${i}`);
+  ans.classList.toggle('hidden');
+  icon.classList.toggle('rotate-180');
+}
+
+// Patch switchTab to also handle faq (not in bottom nav, reached via Profile)
+const _origSwitchTab = switchTab;
+switchTab = function(tab){
+  if(tab === 'faq'){
+    currentTab = 'faq';
+    document.getElementById('navHolder').innerHTML = '';
+    renderFaqPage();
+    window.scrollTo(0,0);
+    return;
+  }
+  _origSwitchTab(tab);
+};
+
+// ===================== ADMIN SHELL =====================
+
+let adminTab = 'dashboard';
+
+function renderAdminShell(){
+  renderAdminNav();
+  switch(adminTab){
+    case 'dashboard': renderAdminDashboard(); break;
+    case 'users': renderAdminUsers(); break;
+    case 'ads': renderAdminAds(); break;
+    case 'withdrawals': renderAdminWithdrawals(); break;
+    default: renderAdminDashboard();
+  }
+}
+
+function switchAdminTab(tab){
+  adminTab = tab;
+  renderAdminShell();
+  window.scrollTo(0,0);
+}
+
+function renderAdminNav(){
+  const items = [
+    { id:'dashboard', icon:'fa-chart-line', label:'Stats' },
+    { id:'users', icon:'fa-users', label:'Users' },
+    { id:'ads', icon:'fa-rectangle-ad', label:'Ads' },
+    { id:'withdrawals', icon:'fa-money-bill-transfer', label:'Payouts' }
+  ];
+  document.getElementById('navHolder').innerHTML = `
+  <div class="fixed bottom-0 left-0 right-0 z-40 safe-bottom">
+    <div class="glass mx-3 mb-3 rounded-2xl flex justify-around items-center py-2">
+      ${items.map(it => `
+        <button onclick="switchAdminTab('${it.id}')" class="navbtn flex flex-col items-center gap-1 px-3 py-1 text-zinc-400 ${adminTab===it.id?'active':''}">
+          <i class="fa-solid ${it.icon} navicon text-lg transition-transform"></i>
+          <span class="text-[10px] font-bold">${it.label}</span>
+        </button>`).join('')}
+      <button onclick="logout()" class="navbtn flex flex-col items-center gap-1 px-3 py-1 text-red-400">
+        <i class="fa-solid fa-right-from-bracket text-lg"></i>
+        <span class="text-[10px] font-bold">Exit</span>
+      </button>
+    </div>
+  </div>`;
+}
+
+async function renderAdminDashboard(){
+  document.getElementById('app').innerHTML = `
+  ${topBar('<i class="fa-solid fa-crown text-amber-300"></i> Admin Dashboard')}
+  <div class="max-w-2xl mx-auto p-4 space-y-4 fade-in">
+    <div class="grid grid-cols-2 gap-3" id="adminStatsGrid">
+      <div class="glass rounded-2xl p-4 text-center col-span-2"><p class="text-xs text-zinc-400">Loading stats...</p></div>
+    </div>
+    <div class="glass rounded-2xl p-4">
+      <p class="font-bold mb-2 text-sm">Top Performing Ads</p>
+      <div id="adAnalyticsBox" class="space-y-2"><p class="text-xs text-zinc-400">Loading...</p></div>
+    </div>
+  </div>`;
+  loadAdminStats();
+  loadAdAnalytics();
+}
+
+async function loadAdminStats(){
+  const box = document.getElementById('adminStatsGrid');
+  try{
+    const data = await api('/admin/stats');
+    box.innerHTML = `
+      <div class="glass rounded-2xl p-4"><p class="text-xs text-zinc-400">Total Users</p><p class="text-xl font-black">${data.totalUsers}</p></div>
+      <div class="glass rounded-2xl p-4"><p class="text-xs text-zinc-400">Signups Today</p><p class="text-xl font-black text-emerald-400">${data.signupsToday}</p></div>
+      <div class="glass rounded-2xl p-4"><p class="text-xs text-zinc-400">Ad Views Today</p><p class="text-xl font-black">${data.adViewsToday}</p></div>
+      <div class="glass rounded-2xl p-4"><p class="text-xs text-zinc-400">Platform Earnings</p><p class="text-xl font-black text-violet-400">$${(data.platformEarnings||0).toFixed(2)}</p></div>
+      <div class="glass rounded-2xl p-4 col-span-2"><p class="text-xs text-zinc-400">Total Paid Out</p><p class="text-xl font-black text-amber-400">$${(data.totalPaidOut||0).toFixed(2)}</p></div>
+    `;
+  }catch(e){
+    box.innerHTML = `<div class="glass rounded-2xl p-4 col-span-2 text-red-300 text-sm">${e.message}</div>`;
+  }
+}
+
+async function loadAdAnalytics(){
+  const box = document.getElementById('adAnalyticsBox');
+  try{
+    const data = await api('/admin/ads-analytics');
+    const list = data.analytics || [];
+    box.innerHTML = list.length ? list.map(a => `
+      <div class="flex justify-between text-sm bg-black/30 rounded-lg px-3 py-2">
+        <span>${a._id?.title || 'Deleted ad'}</span>
+        <span class="text-zinc-400 text-xs">${a.views} views · $${(a.totalPaid||0).toFixed(2)} paid</span>
+      </div>`).join('') : '<p class="text-xs text-zinc-400">No data yet</p>';
+  }catch(e){
+    box.innerHTML = `<p class="text-xs text-red-300">${e.message}</p>`;
+  }
+}
+
+async function renderAdminUsers(){
+  document.getElementById('app').innerHTML = `
+  ${topBar('User Management')}
+  <div class="max-w-2xl mx-auto p-4 space-y-3 fade-in">
+    <div class="flex gap-2">
+      <input id="userSearch" placeholder="Search by email..." class="flex-1 bg-black/50 border border-white/10 rounded-xl p-3 text-sm">
+      <button onclick="loadAdminUsersList()" class="bg-violet-600 px-4 rounded-xl font-bold text-sm">Search</button>
+    </div>
+    <div id="usersListBox" class="space-y-2"><p class="text-xs text-zinc-400">Loading...</p></div>
+  </div>`;
+  loadAdminUsersList();
+}
+
+async function loadAdminUsersList(){
+  const box = document.getElementById('usersListBox');
+  const search = document.getElementById('userSearch')?.value?.trim();
+  try{
+    const query = search ? `?search=${encodeURIComponent(search)}` : '';
+    const data = await api(`/admin/users${query}`);
+    const users = data.users || [];
+    box.innerHTML = users.length ? users.map(u => `
+      <div class="glass rounded-xl p-3 flex justify-between items-center">
+        <div>
+          <p class="font-bold text-sm">${u.email}</p>
+          <p class="text-xs text-zinc-400">$${(u.balanceUSD||0).toFixed(2)} balance · ${u.isBanned ? 'Banned' : 'Active'}</p>
+        </div>
+        <button onclick="toggleBan('${u._id}')" class="px-3 py-1.5 rounded-full text-xs font-bold ${u.isBanned ? 'bg-emerald-500 text-black' : 'bg-red-500 text-white'}">${u.isBanned ? 'Unban' : 'Ban'}</button>
+      </div>`).join('') : '<p class="text-xs text-zinc-400">No users found</p>';
+  }catch(e){
+    box.innerHTML = `<p class="text-xs text-red-300">${e.message}</p>`;
+  }
+}
+
+async function toggleBan(userId){
+  try{
+    await api(`/admin/ban/${userId}`, { method:'POST' });
+    loadAdminUsersList();
+  }catch(e){
+    toast(e.message, true);
+  }
+}
+
+async function renderAdminAds(){
+  document.getElementById('app').innerHTML = `
+  ${topBar('Ad Management')}
+  <div class="max-w-2xl mx-auto p-4 space-y-3 fade-in">
+    <div class="glass rounded-2xl p-4">
+      <div class="space-y-2">
+        <input id="newAdTitle" placeholder="Ad title" class="w-full bg-black/50 border border-white/10 p-3 rounded-xl text-sm">
+        <div class="flex gap-2">
+          <input id="newAdReward" type="number" step="0.001" placeholder="Reward $" class="flex-1 bg-black/50 border border-white/10 p-3 rounded-xl text-sm">
+          <input id="newAdCooldown" type="number" placeholder="Cooldown s" value="30" class="flex-1 bg-black/50 border border-white/10 p-3 rounded-xl text-sm">
+        </div>
+        <button onclick="createAd()" class="w-full bg-emerald-500 text-black py-2.5 rounded-xl font-bold text-sm">Add Ad</button>
+      </div>
+    </div>
+    <div id="adsList" class="space-y-2"></div>
+  </div>`;
   loadAdsAdmin();
 }
 
@@ -264,12 +709,15 @@ async function loadAdsAdmin(){
     const data = await api('/admin/ads');
     const ads = data.ads || [];
     box.innerHTML = ads.length ? ads.map(ad => `
-      <div class="flex justify-between items-center bg-black/30 p-2 rounded text-sm">
-        <span>${ad.title} — $${ad.reward.toFixed(3)} — ${ad.cooldownSeconds}s cooldown — ${ad.active ? 'Active' : 'Inactive'}</span>
-        <button onclick="toggleAd('${ad._id}')" class="bg-white/20 px-3 rounded-full">${ad.active ? 'Disable' : 'Enable'}</button>
-      </div>`).join('') : '<p class="text-sm text-zinc-400">No ads yet — add one above.</p>';
+      <div class="glass rounded-xl p-3 flex justify-between items-center">
+        <div>
+          <p class="font-bold text-sm">${ad.title}</p>
+          <p class="text-xs text-zinc-400">$${ad.reward.toFixed(3)} · ${ad.cooldownSeconds}s cooldown · ${ad.active ? 'Active' : 'Inactive'}</p>
+        </div>
+        <button onclick="toggleAd('${ad._id}')" class="px-3 py-1.5 rounded-full text-xs font-bold bg-white/20">${ad.active ? 'Disable' : 'Enable'}</button>
+      </div>`).join('') : '<p class="text-xs text-zinc-400">No ads yet — add one above.</p>';
   }catch(e){
-    box.innerHTML = `<p class="text-sm text-red-300">${e.message}</p>`;
+    box.innerHTML = `<p class="text-xs text-red-300">${e.message}</p>`;
   }
 }
 
@@ -277,14 +725,15 @@ async function createAd(){
   const title = document.getElementById('newAdTitle').value.trim();
   const reward = parseFloat(document.getElementById('newAdReward').value);
   const cooldownSeconds = parseInt(document.getElementById('newAdCooldown').value) || 30;
-  if(!title || !reward || reward <= 0) return alert('Title and a positive reward are required');
+  if(!title || !reward || reward <= 0) return toast('Title and a positive reward are required', true);
   try{
     await api('/admin/ads', { method:'POST', body: JSON.stringify({ title, reward, cooldownSeconds }) });
     document.getElementById('newAdTitle').value = '';
     document.getElementById('newAdReward').value = '';
     loadAdsAdmin();
+    toast('Ad added');
   }catch(e){
-    alert('Failed: ' + e.message);
+    toast(e.message, true);
   }
 }
 
@@ -293,73 +742,68 @@ async function toggleAd(adId){
     await api(`/admin/ads/${adId}/toggle`, { method:'POST' });
     loadAdsAdmin();
   }catch(e){
-    alert('Failed: ' + e.message);
+    toast(e.message, true);
   }
 }
 
-async function loadStats(){
-  const box = document.getElementById('statsBox');
-  try{
-    const data = await api('/admin/stats');
-    box.innerHTML = `
-      <div class="glass p-4 rounded-xl">Total Users: ${data.totalUsers}</div>
-      <div class="glass p-4 rounded-xl">Total Transactions: ${data.totalTransactions}</div>
-      <div class="glass p-4 rounded-xl">Platform Earnings: $${(data.platformEarnings||0).toFixed(2)}</div>`;
-  }catch(e){
-    box.innerHTML = `<div class="glass p-4 rounded-xl text-red-300">Stats failed: ${e.message}</div>`;
-  }
+async function renderAdminWithdrawals(){
+  document.getElementById('app').innerHTML = `
+  ${topBar('Pending Withdrawals')}
+  <div class="max-w-2xl mx-auto p-4 space-y-2 fade-in" id="withdrawalsBox">
+    <p class="text-xs text-zinc-400">Loading...</p>
+  </div>`;
+  loadWithdrawalsAdmin();
 }
 
-async function loadUsers(){
-  const box = document.getElementById('usersBox');
-  try{
-    const data = await api('/admin/users');
-    const users = data.users || [];
-    box.innerHTML = `<h3 class="font-bold mb-3">User Management</h3>` + users.map(u => `
-      <div class="flex justify-between items-center bg-black/30 p-2 rounded mb-2">
-        <span>${u.email} — $${(u.balanceUSD||0).toFixed(2)} — ${u.isBanned ? 'Banned' : 'Active'}</span>
-        <button onclick="banUser('${u._id}')" class="bg-red-500 px-3 rounded-full text-sm">${u.isBanned ? 'Unban' : 'Ban'}</button>
-      </div>`).join('');
-  }catch(e){
-    box.innerHTML = `<h3 class="font-bold mb-3">User Management</h3><p class="text-sm text-red-300">${e.message}</p>`;
-  }
-}
-
-async function banUser(userId){
-  try{
-    await api(`/admin/ban/${userId}`, { method:'POST' });
-    loadUsers();
-  }catch(e){
-    alert('Failed: ' + e.message);
-  }
-}
-
-async function loadWithdrawals(){
+async function loadWithdrawalsAdmin(){
   const box = document.getElementById('withdrawalsBox');
   try{
     const data = await api('/admin/withdrawals?status=pending');
     const list = data.withdrawals || [];
-    box.innerHTML = `<h3 class="font-bold mb-3">Pending Withdrawals</h3>` + (list.length ? list.map(w => `
-      <div class="flex justify-between items-center bg-black/30 p-2 rounded mb-2 text-sm">
-        <span>${w.userId?.email || w.userId} — $${w.requestedAmount} → net $${w.netAmount} → ${w.usdtAddress}</span>
-        <span class="flex gap-2">
-          <button onclick="reviewWithdrawal('${w._id}', 'approve')" class="bg-emerald-500 text-black px-3 rounded-full">Approve</button>
-          <button onclick="reviewWithdrawal('${w._id}', 'reject')" class="bg-red-500 px-3 rounded-full">Reject</button>
-        </span>
-      </div>`).join('') : '<p class="text-sm text-zinc-400">No pending withdrawals</p>');
+    box.innerHTML = list.length ? list.map(w => `
+      <div class="glass rounded-xl p-3">
+        <p class="font-bold text-sm">${w.userId?.email || w.userId}</p>
+        <p class="text-xs text-zinc-400 mb-2">$${w.requestedAmount} → net $${w.netAmount} → ${w.usdtAddress}</p>
+        <div class="flex gap-2">
+          <button onclick="reviewWithdrawal('${w._id}', 'approve')" class="flex-1 bg-emerald-500 text-black py-1.5 rounded-full text-xs font-bold">Approve</button>
+          <button onclick="reviewWithdrawal('${w._id}', 'reject')" class="flex-1 bg-red-500 text-white py-1.5 rounded-full text-xs font-bold">Reject</button>
+        </div>
+      </div>`).join('') : '<p class="text-xs text-zinc-400">No pending withdrawals</p>';
   }catch(e){
-    box.innerHTML = `<h3 class="font-bold mb-3">Pending Withdrawals</h3><p class="text-sm text-red-300">${e.message}</p>`;
+    box.innerHTML = `<p class="text-xs text-red-300">${e.message}</p>`;
   }
 }
 
 async function reviewWithdrawal(id, action){
   try{
     await api(`/admin/${action}-withdrawal/${id}`, { method:'POST' });
-    loadWithdrawals();
-    loadStats();
+    loadWithdrawalsAdmin();
+    toast(`Withdrawal ${action}d`);
   }catch(e){
-    alert('Failed: ' + e.message);
+    toast(e.message, true);
   }
+}
+
+// ===================== INIT =====================
+
+// Capture referral code from URL on first load
+(function captureRef(){
+  const params = new URLSearchParams(window.location.search);
+  const ref = params.get('ref');
+  if(ref) localStorage.setItem('ce_pending_ref', ref);
+})();
+
+// PWA install prompt handling (optional "Add to Home Screen" nudge)
+let deferredInstallPrompt = null;
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  deferredInstallPrompt = e;
+});
+
+if('serviceWorker' in navigator){
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch(()=>{});
+  });
 }
 
 render();
