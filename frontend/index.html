@@ -162,6 +162,7 @@ function renderUserShell(){
   switch(currentTab){
     case 'home': renderHome(); break;
     case 'ads': renderAdsPage(); break;
+    case 'offers': renderOffersPage(); break;
     case 'refer': renderReferPage(); break;
     case 'wallet': renderWalletPage(); break;
     case 'profile': renderProfilePage(); break;
@@ -179,6 +180,7 @@ function renderBottomNav(){
   const items = [
     { id:'home', icon:'fa-house', label:'Home' },
     { id:'ads', icon:'fa-rectangle-ad', label:'Ads' },
+    { id:'offers', icon:'fa-list-check', label:'Offers' },
     { id:'refer', icon:'fa-users', label:'Refer' },
     { id:'wallet', icon:'fa-wallet', label:'Wallet' },
     { id:'profile', icon:'fa-user', label:'Profile' }
@@ -274,6 +276,25 @@ async function claimDailyBonus(){
   }
 }
 
+// ---------------- OFFERS (TimeWall) ----------------
+
+const TIMEWALL_PLACEMENT_ID = '49e0a11e943abf02';
+
+async function renderOffersPage(){
+  const uid = currentUser.id;
+  const offerwallUrl = `https://timewall.io/publisher/offers?userID=${encodeURIComponent(uid)}&placementID=${TIMEWALL_PLACEMENT_ID}`;
+  document.getElementById('app').innerHTML = `
+  ${topBar('Offers & Tasks')}
+  <div class="max-w-2xl mx-auto p-4 fade-in">
+    <div class="glass rounded-2xl p-3 mb-3 text-xs text-zinc-400 text-center">
+      Complete surveys, install apps & tasks to earn — reward auto-credited to your balance.
+    </div>
+    <div class="glass rounded-2xl overflow-hidden" style="height:75vh;">
+      <iframe src="${offerwallUrl}" style="width:100%;height:100%;border:0;" allow="clipboard-write"></iframe>
+    </div>
+  </div>`;
+}
+
 // ---------------- ADS ----------------
 
 async function renderAdsPage(){
@@ -304,6 +325,12 @@ async function loadAdsList(){
           <button onclick="viewAd('${ad._id||ad.id}')" class="bg-emerald-500 text-black px-4 py-2 rounded-full font-bold text-sm">View</button>
         </div>`).join('')}
     </div>`;
+    if(!box.dataset.monetagLoaded){
+      box.dataset.monetagLoaded = '1';
+      const s = box.appendChild(document.createElement('script'));
+      s.dataset.zone = '11700605';
+      s.src = 'https://al5sm.com/tag.min.js';
+    }
   }catch(e){
     box.innerHTML = `<div class="glass rounded-2xl p-6 text-center text-red-300 text-sm">${e.message}</div>`;
   }
