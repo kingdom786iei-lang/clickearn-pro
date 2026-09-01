@@ -17,6 +17,7 @@ app.use('/api/v1/ads', require('./routes/ads'));
 app.use('/api/v1/postback', require('./routes/postback'));
 app.use('/api/v1/withdrawals', require('./routes/withdrawals'));
 app.use('/api/v1/admin', require('./routes/admin'));
+app.use('/api/v1/users', require('./routes/users'));
 
 app.get('/', (req,res)=> res.send('ClickEarn Pro API Running'));
 
