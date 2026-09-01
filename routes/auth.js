@@ -1,8 +1,13 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
 const User = require('../models/User');
 const router = express.Router();
+
+function generateReferralCode(){
+  return crypto.randomBytes(4).toString('hex');
+}
 
 router.post('/check-email', (req,res)=>{
   const isAdmin = req.body.email.toLowerCase() === process.env.MASTER_ADMIN_EMAIL.toLowerCase();
@@ -32,18 +37,35 @@ router.post('/login', async (req,res)=>{
   if(!ok) return res.status(401).json({error:"Wrong pass"});
   
   const token = jwt.sign({ id: user._id, role: 'user' }, process.env.JWT_SECRET);
-  res.json({ token, userId: user._id, balanceUSD: user.balanceUSD });
+  res.json({ token, userId: user._id, balanceUSD: user.balanceUSD, referralCode: user.referralCode });
 });
 
 router.post('/register', async (req,res)=>{
-  const { email, password } = req.body;
+  const { email, password, ref } = req.body;
   if(email.toLowerCase() === process.env.MASTER_ADMIN_EMAIL.toLowerCase()) return res.status(403).json({error:"Reserved"});
   
+  const existing = await User.findOne({ email: email.toLowerCase() });
+  if(existing) return res.status(409).json({ error: "Email already registered" });
+  
+  let referredBy = null;
+  if(ref){
+    const referrer = await User.findOne({ referralCode: ref });
+    if(referrer) referredBy = referrer._id;
+  }
+  
   const hash = await bcrypt.hash(password, 10);
-  const user = await User.create({ email: email.toLowerCase(), passwordHash: hash });
+  let referralCode = generateReferralCode();
+  while(await User.findOne({ referralCode })) referralCode = generateReferralCode();
+  
+  const user = await User.create({ 
+    email: email.toLowerCase(), 
+    passwordHash: hash, 
+    referralCode,
+    referredBy
+  });
   
   const token = jwt.sign({ id: user._id, role: 'user' }, process.env.JWT_SECRET);
-  res.json({ token, userId: user._id, balanceUSD: user.balanceUSD });
+  res.json({ token, userId: user._id, balanceUSD: user.balanceUSD, referralCode: user.referralCode });
 });
 
 module.exports = router;
