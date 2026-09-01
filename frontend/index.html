@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ClickEarn Pro - PTC Platform</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+<style>
+.glass{background:rgba(255,255,255,0.05);backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,0.1)}
+.pulse{animation:pulse 2s infinite}@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(16,185,129,0.7)}70%{box-shadow:0 0 0 10px rgba(16,185,129,0)}100%{box-shadow:0 0 0 0 rgba(16,185,129,0)}}
+</style>
+</head>
+<body class="bg-[#0a0a12] text-white min-h-screen">
+<div id="app"></div>
+
+<script>
+// ===== CONFIG =====
+const API_BASE = "https://clickearn-backend-production.up.railway.app/api/v1";
+
+let token = localStorage.getItem('ce_token') || null;
+let currentUser = JSON.parse(localStorage.getItem('ce_user') || 'null');
+let cooldown = 0;
+
+function saveSession(){
+  if(token) localStorage.setItem('ce_token', token); else localStorage.removeItem('ce_token');
+  if(currentUser) localStorage.setItem('ce_user', JSON.stringify(currentUser)); else localStorage.removeItem('ce_user');
+}
+
+async function api(path, opts = {}){
+  const headers = { 'Content-Type': 'application/json', ...(opts.headers||{}) };
+  if(token) headers['Authorization'] = `Bearer ${token}`;
+  const res = await fetch(`${API_BASE}${path}`, { ...opts, headers });
+  let data = null;
+  try { data = await res.json(); } catch(e) {}
+  if(!res.ok) throw new Error((data && (data.error || data.message)) || `Request failed (${res.status})`);
+  return data;
+}
+
+function render(){
+  if(!currentUser){ renderAuth(); return; }
+  if(currentUser.role === 'admin') renderAdmin();
+  else renderUser();
+}
+
+function renderAuth(){
+  const showPin = window._showPin || false;
+  document.getElementById('app').innerHTML = `
+  <div class="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-violet-900/20 to-emerald-900/20">
+   <div class="glass rounded-[2rem] p-8 w-full max-w-md">
+    <div class="text-center mb-8"><h1 class="text-3xl font-black"><i class="fa-solid fa-bolt text-emerald-400"></i> ClickEarn <span class="text-violet-400">Pro</span></h1><p class="text-zinc-400 text-sm mt-2">Premium PTC & Micro-Job Platform</p></div>
+    <div class="flex bg-black/40 rounded-full p-1 mb-6">
+      <button onclick="window._tab='login';renderAuth()" class="flex-1 py-2 rounded-full ${window._tab!=='reg'?'bg-white text-black':''} font-bold">Login</button>
+      <button onclick="window._tab='reg';renderAuth()" class="flex-1 py-2 rounded-full ${window._tab==='reg'?'bg-white text-black':''} font-bold">Register</button>
+    </div>
+    <div id="authError" class="hidden bg-red-500/10 border border-red-500/30 text-red-300 text-sm rounded-xl p-3 mb-3"></div>
+    <input id="email" oninput="checkAdmin(this.value)" placeholder="Email" class="w-full bg-black/50 border border-white/10 rounded-xl p-3 mb-3 outline-none focus:border-violet-500">
+    <input id="pass" type="password" placeholder="Password" class="w-full bg-black/50 border border-white/10 rounded-xl p-3 mb-3 outline-none">
+    <div id="pinBox" class="${showPin?'':'hidden'}">
+      <input id="pin" placeholder="Admin PIN (6-digit)" class="w-full bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 mb-3 outline-none text-amber-300">
+      <p class="text-xs text-amber-300 mb-3">Master Admin Detected - Enter PIN</p>
+    </div>
+    <button id="authBtn" onclick="doAuth()" class="w-full bg-gradient-to-r from-violet-600 to-emerald-500 py-3 rounded-xl font-bold">Continue <i class="fa-solid fa-arrow-right ml-2"></i></button>
+   </div>
+  </div>`;
+  if(window._email) document.getElementById('email').value = window._email;
+}
+
+async function checkAdmin(v){
+  window._email = v;
+  if(!v || !v.includes('@')) return;
+  try{
+    const data = await api('/auth/check-email', { method:'POST', body: JSON.stringify({ email:v }) });
+    window._showPin = !!data.showPinField;
+    document.getElementById('pinBox')?.classList.toggle('hidden', !window._showPin);
+  }catch(e){}
+}
+
+function showAuthError(msg){
+  const box = document.getElementById('authError');
+  if(!box) return;
+  box.textContent = msg;
+  box.classList.remove('hidden');
+}
+
+async function doAuth(){
+  const email = document.getElementById('email').value.trim().toLowerCase();
+  const pass = document.getElementById('pass').value;
+  const pin = document.getElementById('pin')?.value;
+  const btn = document.getElementById('authBtn');
+  if(!email || !pass) return showAuthError('Email/Password required');
+
+  btn.disabled = true; btn.innerText = 'Please wait...';
+  try{
+    if(window._tab === 'reg'){
+      const data = await api('/auth/register', { method:'POST', body: JSON.stringify({ email, password: pass }) });
+      token = data.token;
+      currentUser = { id: data.userId, email, role: 'user', balanceUSD: data.balanceUSD || 0 };
+      saveSession(); render();
+    } else {
+      const body = { email, password: pass };
+      if(pin) body.adminPin = pin;
+      const data = await api('/auth/login', { method:'POST', body: JSON.stringify(body) });
+      token = data.token;
+      currentUser = data.isAdmin
+        ? { email, role: 'admin' }
+        : { id: data.userId, email, role: 'user', balanceUSD: data.balanceUSD || 0 };
+      saveSession(); render();
+    }
+  }catch(e){
+    showAuthError(e.message);
+  }finally{
+    btn.disabled = false; btn.innerHTML = 'Continue <i class="fa-solid fa-arrow-right ml-2"></i>';
+  }
+}
+
+function logout(){
+  token = null; currentUser = null; window._showPin = false;
+  saveSession(); render();
+}
+
+async function renderUser(){
+  document.getElementById('app').innerHTML = `
+  <div class="max-w-6xl mx-auto p-4">
+   <div class="flex justify-between items-center glass rounded-2xl p-4 mb-6">
+     <h2 class="font-black text-xl"><i class="fa-solid fa-bolt text-emerald-400"></i> ClickEarn Pro</h2>
+     <div class="flex items-center gap-4">
+       <div class="bg-emerald-500/20 border border-emerald-500/30 rounded-full px-4 py-1 font-bold pulse" id="balanceBadge">$${(currentUser.balanceUSD||0).toFixed(3)}</div>
+       <button onclick="logout()" class="text-zinc-400"><i class="fa-solid fa-right-from-bracket"></i></button>
+     </div>
+   </div>
+   <div class="glass rounded-2xl p-6 mb-6" id="adsBox">
+     <h3 class="font-bold mb-4"><i class="fa-solid fa-rectangle-ad"></i> Available Ads</h3>
+     <p class="text-sm text-zinc-400">Loading ads...</p>
+   </div>
+   <div class="glass rounded-2xl p-6">
+     <h3 class="font-bold mb-4">Withdrawal - USDT - Min $5.00</h3>
+     <div id="wdError" class="hidden bg-red-500/10 border border-red-500/30 text-red-300 text-sm rounded-xl p-3 mb-3"></div>
+     <input id="wdAmt" type="number" step="0.01" placeholder="Amount (e.g. 5.5)" class="w-full bg-black/50 border border-white/10 rounded-xl p-3 mb-2">
+     <input id="wdAddr" placeholder="USDT Address" class="w-full bg-black/50 border border-white/10 rounded-xl p-3 mb-3">
+     <button onclick="withdraw()" class="w-full bg-emerald-500 text-black py-3 rounded-xl font-bold">Request Withdrawal</button>
+     <div id="wdHistory" class="mt-4 space-y-2"></div>
+   </div>
+  </div>`;
+  loadAds();
+  loadWithdrawalHistory();
+}
+
+async function loadAds(){
+  const box = document.getElementById('adsBox');
+  try{
+    const data = await api('/ads');
+    const ads = data.ads || [];
+    if(ads.length === 0){
+      box.innerHTML = `<h3 class="font-bold mb-4"><i class="fa-solid fa-rectangle-ad"></i> Available Ads</h3>
+        <p class="text-sm text-zinc-400">No ads available right now — check back soon.</p>`;
+      return;
+    }
+    box.innerHTML = `<h3 class="font-bold mb-4"><i class="fa-solid fa-rectangle-ad"></i> Available Ads</h3>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+        ${ads.map(ad => `
+          <div class="bg-black/40 rounded-xl p-4 flex justify-between items-center">
+            <div><p class="font-bold">${ad.title || 'Ad'}</p><p class="text-xs text-zinc-400">Reward $${(ad.reward||0).toFixed(3)}</p></div>
+            <button onclick="viewAd('${ad._id||ad.id}')" class="bg-emerald-500 text-black px-4 py-2 rounded-full font-bold">View Ad</button>
+          </div>`).join('')}
+      </div>`;
+  }catch(e){
+    box.innerHTML = `<h3 class="font-bold mb-4"><i class="fa-solid fa-rectangle-ad"></i> Available Ads</h3>
+      <p class="text-sm text-red-300">Couldn't load ads: ${e.message}</p>`;
+  }
+}
+
+async function viewAd(adId){
+  try{
+    const data = await api(`/ads/click/${adId}`, { method:'POST' });
+    currentUser.balanceUSD = data.balanceUSD;
+    saveSession();
+    const badge = document.getElementById('balanceBadge');
+    if(badge) badge.textContent = `$${currentUser.balanceUSD.toFixed(3)}`;
+  }catch(e){
+    alert(e.message);
+  }
+}
+
+async function loadWithdrawalHistory(){
+  const box = document.getElementById('wdHistory');
+  if(!box || !currentUser.id) return;
+  try{
+    const data = await api(`/withdrawals/history/${currentUser.id}`);
+    const list = data.withdrawals || [];
+    box.innerHTML = list.length
+      ? list.map(w => `<div class="bg-black/30 rounded-lg p-2 text-xs flex justify-between"><span>$${w.requestedAmount} → net $${w.netAmount}</span><span class="capitalize">${w.status}</span></div>`).join('')
+      : '';
+  }catch(e){}
+}
+
+function showWdError(msg){
+  const box = document.getElementById('wdError');
+  if(!box) return;
+  box.textContent = msg;
+  box.classList.remove('hidden');
+}
+
+async function withdraw(){
+  const amount = parseFloat(document.getElementById('wdAmt').value);
+  const usdtAddress = document.getElementById('wdAddr').value.trim();
+  if(!amount || amount < 5) return showWdError('Minimum withdrawal is $5');
+  if(!usdtAddress) return showWdError('Enter a USDT address');
+  try{
+    const data = await api('/withdrawals/request', {
+      method:'POST',
+      body: JSON.stringify({ amount, usdtAddress })
+    });
+    currentUser.balanceUSD = data.balanceUSD;
+    saveSession();
+    document.getElementById('balanceBadge').textContent = `$${currentUser.balanceUSD.toFixed(3)}`;
+    document.getElementById('wdAmt').value = '';
+    document.getElementById('wdAddr').value = '';
+    alert('Withdrawal requested — pending admin approval.');
+    loadWithdrawalHistory();
+  }catch(e){
+    showWdError(e.message);
+  }
+}
+
+async function renderAdmin(){
+  document.getElementById('app').innerHTML = `
+  <div class="max-w-6xl mx-auto p-4">
+   <div class="flex justify-between items-center glass rounded-2xl p-4 mb-6">
+     <h2 class="font-black text-xl text-amber-300"><i class="fa-solid fa-crown"></i> Admin Panel</h2>
+     <button onclick="logout()" class="bg-white text-black px-4 rounded-full py-1">Logout</button>
+   </div>
+   <div class="grid grid-cols-3 gap-4 mb-6" id="statsBox">
+     <div class="glass p-4 rounded-xl">Loading stats...</div>
+   </div>
+   <div class="glass p-6 rounded-2xl mb-6" id="adsMgmtBox">
+     <h3 class="font-bold mb-3">Ad Management</h3>
+     <div class="flex gap-2 mb-4">
+       <input id="newAdTitle" placeholder="Ad title" class="flex-1 bg-black/50 p-2 rounded">
+       <input id="newAdReward" type="number" step="0.001" placeholder="Reward $" class="w-28 bg-black/50 p-2 rounded">
+       <input id="newAdCooldown" type="number" placeholder="Cooldown s" class="w-28 bg-black/50 p-2 rounded" value="30">
+       <button onclick="createAd()" class="bg-emerald-500 text-black px-4 rounded">Add Ad</button>
+     </div>
+     <div id="adsList" class="space-y-2"></div>
+   </div>
+   <div class="glass p-6 rounded-2xl mb-6" id="usersBox">
+     <h3 class="font-bold mb-3">User Management</h3>
+     <p class="text-sm text-zinc-400">Loading users...</p>
+   </div>
+   <div class="glass p-6 rounded-2xl" id="withdrawalsBox">
+     <h3 class="font-bold mb-3">Pending Withdrawals</h3>
+     <p class="text-sm text-zinc-400">Loading...</p>
+   </div>
+  </div>`;
+  loadStats();
+  loadUsers();
+  loadWithdrawals();
+  loadAdsAdmin();
+}
+
+async function loadAdsAdmin(){
+  const box = document.getElementById('adsList');
+  try{
+    const data = await api('/admin/ads');
+    const ads = data.ads || [];
+    box.innerHTML = ads.length ? ads.map(ad => `
+      <div class="flex justify-between items-center bg-black/30 p-2 rounded text-sm">
+        <span>${ad.title} — $${ad.reward.toFixed(3)} — ${ad.cooldownSeconds}s cooldown — ${ad.active ? 'Active' : 'Inactive'}</span>
+        <button onclick="toggleAd('${ad._id}')" class="bg-white/20 px-3 rounded-full">${ad.active ? 'Disable' : 'Enable'}</button>
+      </div>`).join('') : '<p class="text-sm text-zinc-400">No ads yet — add one above.</p>';
+  }catch(e){
+    box.innerHTML = `<p class="text-sm text-red-300">${e.message}</p>`;
+  }
+}
+
+async function createAd(){
+  const title = document.getElementById('newAdTitle').value.trim();
+  const reward = parseFloat(document.getElementById('newAdReward').value);
+  const cooldownSeconds = parseInt(document.getElementById('newAdCooldown').value) || 30;
+  if(!title || !reward || reward <= 0) return alert('Title and a positive reward are required');
+  try{
+    await api('/admin/ads', { method:'POST', body: JSON.stringify({ title, reward, cooldownSeconds }) });
+    document.getElementById('newAdTitle').value = '';
+    document.getElementById('newAdReward').value = '';
+    loadAdsAdmin();
+  }catch(e){
+    alert('Failed: ' + e.message);
+  }
+}
+
+async function toggleAd(adId){
+  try{
+    await api(`/admin/ads/${adId}/toggle`, { method:'POST' });
+    loadAdsAdmin();
+  }catch(e){
+    alert('Failed: ' + e.message);
+  }
+}
+
+async function loadStats(){
+  const box = document.getElementById('statsBox');
+  try{
+    const data = await api('/admin/stats');
+    box.innerHTML = `
+      <div class="glass p-4 rounded-xl">Total Users: ${data.totalUsers}</div>
+      <div class="glass p-4 rounded-xl">Total Transactions: ${data.totalTransactions}</div>
+      <div class="glass p-4 rounded-xl">Platform Earnings: $${(data.platformEarnings||0).toFixed(2)}</div>`;
+  }catch(e){
+    box.innerHTML = `<div class="glass p-4 rounded-xl text-red-300">Stats failed: ${e.message}</div>`;
+  }
+}
+
+async function loadUsers(){
+  const box = document.getElementById('usersBox');
+  try{
+    const data = await api('/admin/users');
+    const users = data.users || [];
+    box.innerHTML = `<h3 class="font-bold mb-3">User Management</h3>` + users.map(u => `
+      <div class="flex justify-between items-center bg-black/30 p-2 rounded mb-2">
+        <span>${u.email} — $${(u.balanceUSD||0).toFixed(2)} — ${u.isBanned ? 'Banned' : 'Active'}</span>
+        <button onclick="banUser('${u._id}')" class="bg-red-500 px-3 rounded-full text-sm">${u.isBanned ? 'Unban' : 'Ban'}</button>
+      </div>`).join('');
+  }catch(e){
+    box.innerHTML = `<h3 class="font-bold mb-3">User Management</h3><p class="text-sm text-red-300">${e.message}</p>`;
+  }
+}
+
+async function banUser(userId){
+  try{
+    await api(`/admin/ban/${userId}`, { method:'POST' });
+    loadUsers();
+  }catch(e){
+    alert('Failed: ' + e.message);
+  }
+}
+
+async function loadWithdrawals(){
+  const box = document.getElementById('withdrawalsBox');
+  try{
+    const data = await api('/admin/withdrawals?status=pending');
+    const list = data.withdrawals || [];
+    box.innerHTML = `<h3 class="font-bold mb-3">Pending Withdrawals</h3>` + (list.length ? list.map(w => `
+      <div class="flex justify-between items-center bg-black/30 p-2 rounded mb-2 text-sm">
+        <span>${w.userId?.email || w.userId} — $${w.requestedAmount} → net $${w.netAmount} → ${w.usdtAddress}</span>
+        <span class="flex gap-2">
+          <button onclick="reviewWithdrawal('${w._id}', 'approve')" class="bg-emerald-500 text-black px-3 rounded-full">Approve</button>
+          <button onclick="reviewWithdrawal('${w._id}', 'reject')" class="bg-red-500 px-3 rounded-full">Reject</button>
+        </span>
+      </div>`).join('') : '<p class="text-sm text-zinc-400">No pending withdrawals</p>');
+  }catch(e){
+    box.innerHTML = `<h3 class="font-bold mb-3">Pending Withdrawals</h3><p class="text-sm text-red-300">${e.message}</p>`;
+  }
+}
+
+async function reviewWithdrawal(id, action){
+  try{
+    await api(`/admin/${action}-withdrawal/${id}`, { method:'POST' });
+    loadWithdrawals();
+    loadStats();
+  }catch(e){
+    alert('Failed: ' + e.message);
+  }
+}
+
+render();
+</script>
+</body>
+</html>
