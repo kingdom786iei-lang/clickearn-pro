@@ -5,7 +5,8 @@ const User = require('../models/User');
 const { verifyToken } = require('../middleware/auth');
 const router = express.Router();
 
-// Get available ads (public list — reward amounts are set by admin, not the client)
+const REFERRAL_BONUS_PERCENT = 0.10; // 10% of referred user's earnings goes to referrer
+
 router.get('/', async (req, res) => {
   try {
     const ads = await Ad.find({ active: true }).select('title reward cooldownSeconds');
@@ -15,9 +16,6 @@ router.get('/', async (req, res) => {
   }
 });
 
-// Record a view/click and credit the reward.
-// userId comes from the verified JWT, never from the request body —
-// otherwise anyone could POST someone else's userId and credit their account.
 router.post('/click/:adId', verifyToken, async (req, res) => {
   try {
     const userId = req.user.id;
@@ -42,8 +40,17 @@ router.post('/click/:adId', verifyToken, async (req, res) => {
     }
 
     user.balanceUSD += ad.reward;
+    user.totalEarned += ad.reward;
     await user.save();
     await AdView.create({ userId, adId, rewardGiven: ad.reward });
+
+    // Give referrer their cut, if this user was referred
+    if (user.referredBy) {
+      const bonus = ad.reward * REFERRAL_BONUS_PERCENT;
+      await User.findByIdAndUpdate(user.referredBy, {
+        $inc: { balanceUSD: bonus, referralEarnings: bonus, totalEarned: bonus }
+      });
+    }
 
     res.json({ success: true, reward: ad.reward, balanceUSD: user.balanceUSD });
   } catch (err) {
