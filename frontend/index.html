@@ -5,7 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>ClickEarn Pro</title>
 <meta name="theme-color" content="#0a0a12">
-<meta name="monetag" content="9a3ae82d47f16291268e55579003a6a5">
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -325,12 +324,6 @@ async function loadAdsList(){
           <button onclick="viewAd('${ad._id||ad.id}')" class="bg-emerald-500 text-black px-4 py-2 rounded-full font-bold text-sm">View</button>
         </div>`).join('')}
     </div>`;
-    if(!box.dataset.monetagLoaded){
-      box.dataset.monetagLoaded = '1';
-      const s = box.appendChild(document.createElement('script'));
-      s.dataset.zone = '11700605';
-      s.src = 'https://al5sm.com/tag.min.js';
-    }
   }catch(e){
     box.innerHTML = `<div class="glass rounded-2xl p-6 text-center text-red-300 text-sm">${e.message}</div>`;
   }
