@@ -281,7 +281,7 @@ const TIMEWALL_PLACEMENT_ID = '49e0a11e943abf02';
 
 async function renderOffersPage(){
   const uid = currentUser.id;
-  const offerwallUrl = `https://timewall.io/publisher/offers?userID=${encodeURIComponent(uid)}&placementID=${TIMEWALL_PLACEMENT_ID}`;
+  const offerwallUrl = `https://timewall.io/users/login?oid=${TIMEWALL_PLACEMENT_ID}&uid=${encodeURIComponent(uid)}&tab=surveys`;
   document.getElementById('app').innerHTML = `
   ${topBar('Offers & Tasks')}
   <div class="max-w-2xl mx-auto p-4 fade-in">
